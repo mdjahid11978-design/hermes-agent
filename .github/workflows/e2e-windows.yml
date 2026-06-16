@@ -155,6 +155,7 @@ jobs:
       - name: Add test-bins to PATH
         shell: pwsh
         run: |
+          ls "$PWD\test-bins\ffmpeg"
           Add-Content -Path $env:GITHUB_PATH -Value "$PWD\test-bins\autohotkey"
           Add-Content -Path $env:GITHUB_PATH -Value "$PWD\test-bins\ffmpeg"
 
