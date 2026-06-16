@@ -32,7 +32,7 @@ jobs:
         id: installer-cache
         with:
           path: Hermes-Setup.exe
-          key: hermes-installer-${{ runner.os }}-${{ hashFiles('package-lock.json', 'apps/bootstrap-installer/**', '!apps/bootstrap-installer/src-tauri/target/**') }}
+          key: hermes-installer-cache-${{ runner.os }}-${{ hashFiles('package-lock.json', 'apps/bootstrap-installer/**', '!apps/bootstrap-installer/src-tauri/target/**') }}
 
       - name: Setup Node.js
         if: steps.installer-cache.outputs.cache-hit != 'true'
@@ -96,7 +96,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hermes-installer-${{ runner.os }}-${{ hashFiles('package-lock.json', 'apps/bootstrap-installer/**', '!apps/bootstrap-installer/src-tauri/target/**') }}
+          name: hermes-installer-cache-${{ runner.os }}-${{ hashFiles('package-lock.json', 'apps/bootstrap-installer/**', '!apps/bootstrap-installer/src-tauri/target/**') }}
           path: Hermes-Setup.exe
           if-no-files-found: error
 
@@ -119,7 +119,7 @@ jobs:
       - name: Download installer artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: hermes-installer-${{ runner.os }}-${{ hashFiles('source/package-lock.json', 'source/apps/bootstrap-installer/**', '!source/apps/bootstrap-installer/src-tauri/target/**') }}
+          name: hermes-installer-cache-${{ runner.os }}-${{ hashFiles('source/package-lock.json', 'source/apps/bootstrap-installer/**', '!source/apps/bootstrap-installer/src-tauri/target/**') }}
 
       - name: Restore cached test tools
         id: test-tools-cache
