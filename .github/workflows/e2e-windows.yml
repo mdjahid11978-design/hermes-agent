@@ -197,18 +197,17 @@ jobs:
           Write-Host "ffmpeg recording started (pid $($ffmpeg.Id))"
 
           try {
-          $ahk | Out-File -Encoding utf8 "$env:INSTALL_DIR\e2e\windows\install-hermes-desktop.ahk"
-
-          $ahkProc = Start-Process -FilePath ".\test-bins\autohotkey\AutoHotkey64.exe" `
-            -ArgumentList '"capture-button.ahk"' -PassThru -NoNewWindow `
-            -RedirectStandardOutput ahk-stdout.log -RedirectStandardError ahk-stderr.log
-
           # Launch the real installer (headed).
           $proc = Start-Process -FilePath $installer -PassThru -NoNewWindow
           $proc.Id | Out-File installer.pid
 
-          # Wait for AHK helper to finish (30s window wait + 1s sleep).
-          $ahkProc | Wait-Process -Timeout 45 -ErrorAction SilentlyContinue
+
+          $ahkProc = Start-Process -FilePath ".\test-bins\autohotkey\AutoHotkey64.exe" `
+            -ArgumentList '"$env:INSTALL_DIR\e2e\windows\install-hermes-desktop.ahk"' -PassThru -NoNewWindow `
+            -RedirectStandardOutput ahk-stdout.log -RedirectStandardError ahk-stderr.log
+
+          # Wait for AHK helper to finish
+          $ahkProc | Wait-Process -Timeout 240 -ErrorAction SilentlyContinue
           if (-not $ahkProc.HasExited) {
             Write-Host "AHK helper is still running; stopping it"
             Stop-Process -Id $ahkProc.Id -Force -ErrorAction SilentlyContinue
@@ -274,6 +273,14 @@ jobs:
             }
           }
 
+      - name: Convert screen recording to compact GIF
+        if: always()
+        shell: pwsh
+        run: |
+          ffmpeg -y -i recording.mkv `
+            -vf "fps=10,scale=480:-1:flags=lanczos,drawtext=text='%{pts\:hms}':fontfile='C\:/Windows/Fonts/arial.ttf':fontsize=20:fontcolor=white:box=1:boxcolor=black@0.5:x=8:y=8,split=2[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=bayer" `
+            recording.gif
+
       - name: Upload screen recording
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         id: upload-recording
@@ -285,14 +292,28 @@ jobs:
           archive: false
           overwrite: true
 
+      - name: Upload compact GIF
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: upload-gif
+        if: always()
+        with:
+          name: screen-recording-gif-${{ github.event.pull_request.head.sha }}
+          path: recording.gif
+          retention-days: 1
+          archive: false
+          overwrite: true
+
       - name: Link screen recording in job summary
         shell: pwsh
         env:
-          ARTIFACT_URL: ${{ steps.upload-recording.outputs.artifact-url }}
+          MKV_URL: ${{ steps.upload-recording.outputs.artifact-url }}
+          GIF_URL: ${{ steps.upload-gif.outputs.artifact-url }}
         run: |
           "## E2E screen recording" >> $env:GITHUB_STEP_SUMMARY
           "" >> $env:GITHUB_STEP_SUMMARY
-          "[download recording.mkv]($($env:ARTIFACT_URL))" >> $env:GITHUB_STEP_SUMMARY
+          "[download recording.mkv]($($env.MKV_URL))" >> $env:GITHUB_STEP_SUMMARY
+          "" >> $env:GITHUB_STEP_SUMMARY
+          "![recording.gif]($($env.GIF_URL))" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Upload AHK logs and script
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
