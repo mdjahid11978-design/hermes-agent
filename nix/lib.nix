@@ -18,11 +18,15 @@ let
   # The workspace root — where the single package-lock.json lives.
   src = ../.;
 
-  # npm dependencies for the workspace, shared by all members. importNpmLock
-  # resolves each package from the lockfile's own `integrity` hashes, so the
-  # lockfile is the single source of truth — no separate dependency hash to
-  # keep in sync with it.
-  npmDeps = pkgs.importNpmLock.importNpmLock { npmRoot = src; };
+  # Single npm deps fetch from the workspace root lockfile.
+  # All workspace packages share this derivation.
+  npmDepsHash = "sha256-pKtCQ9033JTw0YIXVDb6WErf3YhAi7bPLYjXBHmSBSQ=";
+
+  npmDeps = pkgs.fetchNpmDeps {
+    inherit src;
+    fetcherVersion = 2;
+    hash = npmDepsHash;
+  };
 in
 {
   # Returns a buildNpmPackage-compatible attrs set that provides:
