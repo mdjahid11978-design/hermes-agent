@@ -202,7 +202,7 @@ jobs:
             $proc.Id | Out-File installer.pid
 
             $ahkProc = Start-Process -FilePath ".\test-bins\autohotkey\AutoHotkey64.exe" `
-              -ArgumentList "$env:INSTALL_DIR\e2e\windows\install-hermes-desktop.ahk", "$PWD\ahk.log" -PassThru -NoNewWindow -ErrorStdOut
+              -ArgumentList "$env:INSTALL_DIR\e2e\windows\install-hermes-desktop.ahk", "$PWD\ahk.log" -PassThru -NoNewWindow
 
             # Wait for AHK helper to finish. can take a long time for installer!
             $ahkProc | Wait-Process -Timeout (60 * 8) -ErrorAction SilentlyContinue

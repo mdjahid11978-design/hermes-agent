@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#ErrorStdOut "UTF-8"
 
 SetWorkingDir(A_ScriptDir)
 CoordMode("Pixel", "Screen")
