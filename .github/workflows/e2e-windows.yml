@@ -202,7 +202,10 @@ jobs:
 
             $e2eDir = "$env:RUNNER_TEMP\e2e-windows"
 
-            Copy-Item -Path "$env:INSTALL_DIR\e2e\windows"  -Destination $e2eDir 
+            Copy-Item -Path "$env:INSTALL_DIR\e2e\windows"  -Destination $e2eDir -Force
+
+            ls $e2eDir
+            throw "fail after ls"
 
             $ahkProc = Start-Process -FilePath ".\test-bins\autohotkey\AutoHotkey64.exe" `
               -ArgumentList "$e2eDir\install-hermes-desktop.ahk", "$PWD\ahk.log" -PassThru -NoNewWindow
