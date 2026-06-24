@@ -33,7 +33,7 @@ jobs:
         id: installer-cache
         with:
           path: Hermes-Setup.exe
-          key: hermes-installer-cache-${{ runner.os }}-${{ hashFiles('package-lock.json', 'apps/bootstrap-installer/**', '!apps/bootstrap-installer/src-tauri/target/**') }}
+          key: hermes-installer-built-cache-${{ runner.os }}-${{ hashFiles('package-lock.json', 'apps/bootstrap-installer/**', '!apps/bootstrap-installer/src-tauri/target/**') }}
 
       - name: Setup Node.js
         if: steps.installer-cache.outputs.cache-hit != 'true'
@@ -53,13 +53,11 @@ jobs:
         if: steps.installer-cache.outputs.cache-hit != 'true'
         run: npm ci
 
-      - name: Build installer
+      - name: Build dev installer for this branch
         if: steps.installer-cache.outputs.cache-hit != 'true'
         run: npm run tauri:build
         working-directory: apps/bootstrap-installer
         timeout-minutes: 10
-        env:
-          HERMES_BUILD_PIN_BRANCH: "main" # build the installer exactly as it would build on `main`. we'll override this when running it.
 
       # Only runs on cache miss. Pick the exe the Tauri build produced and
       # normalize its name so downstream jobs always know what to download.
@@ -112,7 +110,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: Hermes-Setup.exe
-          key: hermes-installer-cache-${{ runner.os }}-${{ hashFiles('source/package-lock.json', 'source/apps/bootstrap-installer/**', '!source/apps/bootstrap-installer/src-tauri/target/**') }}
+          key: hermes-installer-built-cache-${{ runner.os }}-${{ hashFiles('source/package-lock.json', 'source/apps/bootstrap-installer/**', '!source/apps/bootstrap-installer/src-tauri/target/**') }}
 
       - name: Restore cached test tools
         id: test-tools-cache
