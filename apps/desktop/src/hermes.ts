@@ -195,6 +195,34 @@ function profileScoped(): { profile?: string } {
   return _apiProfile ? { profile: _apiProfile } : {}
 }
 
+/** Options for a plugin REST call — mirrors the app's own `hermesDesktop.api`
+ *  shape, minus the path (which is namespace-derived). */
+export interface PluginRestOptions {
+  method?: string
+  body?: unknown
+  timeoutMs?: number
+}
+
+/** The plugin REST door. Every call is scoped BY CONSTRUCTION to the plugin's
+ *  own backend namespace — `path` is relative to `/api/plugins/<pluginId>`
+ *  ('/board' → `/api/plugins/kanban/board`), so a plugin can't address another
+ *  plugin's API or a core route through it. Profile-aware like every desktop
+ *  REST call. Broader reach (core endpoints, another namespace) is the future
+ *  declared-capability seam; today the namespace IS the boundary. */
+export async function pluginRest<T>(pluginId: string, path: string, opts: PluginRestOptions = {}): Promise<T> {
+  if (!window.hermesDesktop?.api) {
+    throw new Error('Hermes desktop bridge unavailable')
+  }
+
+  return window.hermesDesktop.api<T>({
+    path: `/api/plugins/${pluginId}${path.startsWith('/') ? path : `/${path}`}`,
+    method: opts.method,
+    body: opts.body,
+    timeoutMs: opts.timeoutMs,
+    ...profileScoped()
+  })
+}
+
 export async function listSessions(
   limit = 40,
   minMessages = 0,

@@ -12,7 +12,7 @@
 import helloRuntimeSource from '../plugins/hello-runtime/plugin.runtime.js?raw'
 
 import { createPluginContext, type HermesPlugin } from './plugin'
-import { pluginDisabled, publishPlugin } from './plugins-store'
+import { pluginActive, publishPlugin } from './plugins-store'
 import { loadRuntimePlugin, watchRuntimePlugins } from './runtime-loader'
 
 const modules = import.meta.glob<{ default: HermesPlugin }>('../plugins/*/plugin.{ts,tsx}', { eager: true })
@@ -62,7 +62,7 @@ export function discoverBundledPlugins(): void {
 
     publishPlugin({ ...record, status: 'disabled' }, { activate, deactivate })
 
-    if (!pluginDisabled(plugin.id)) {
+    if (pluginActive(plugin.id, plugin.defaultEnabled ?? true)) {
       activate()
     }
   }

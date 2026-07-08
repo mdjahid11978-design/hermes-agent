@@ -12,10 +12,13 @@
  * through the plugin host loader (next phase); this is that seam.
  */
 
+import { pluginRest, type PluginRestOptions } from '@/hermes'
 import { readKey, writeKey } from '@/lib/storage'
 
 import { registry } from './registry'
 import type { Contribution } from './types'
+
+export type { PluginRestOptions } from '@/hermes'
 
 /** A contribution as a plugin author writes it — provenance + id scoping are
  *  the host's job, so those fields are off-limits here. */
@@ -36,6 +39,11 @@ export interface PluginContext {
   register: (c: PluginContribution) => () => void
   /** Register several at once; the returned disposer removes all of them. */
   registerMany: (cs: PluginContribution[]) => () => void
+  /** REST to this plugin's own backend namespace (`/api/plugins/<id>`); `path`
+   *  is relative ('/board'). The sanctioned door for a plugin that ships a
+   *  `plugin_api.py` — profile-aware, namespace-scoped by construction. Use
+   *  `host.request` for gateway JSON-RPC. */
+  rest: <T>(path: string, opts?: PluginRestOptions) => Promise<T>
   /** Plugin-scoped persistence. */
   storage: PluginStorage
 }
@@ -45,6 +53,10 @@ export interface HermesPlugin {
   id: string
   /** Human name for settings / about UI. */
   name?: string
+  /** Registers on load when the user hasn't chosen (default true). Set false
+   *  for opt-in plugins: they inventory in Settings ▸ Plugins, off until the
+   *  user flips the switch. */
+  defaultEnabled?: boolean
   /** Called once at load; wire contributions through `ctx`. */
   register: (ctx: PluginContext) => void
 }
@@ -87,6 +99,7 @@ export function createPluginContext(pluginId: string, onDispose?: (dispose: () =
     source,
     register: c => track(registry.register(scope(c))),
     registerMany: cs => track(registry.registerMany(cs.map(scope))),
+    rest: <T>(path: string, opts?: PluginRestOptions) => pluginRest<T>(pluginId, path, opts),
     storage: createPluginStorage(pluginId)
   }
 }

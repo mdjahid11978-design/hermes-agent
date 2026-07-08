@@ -21,7 +21,7 @@ import { installPluginSdk, sdkImportMap } from '@/sdk/runtime'
 import { notifyError } from '@/store/notifications'
 
 import { createPluginContext, type HermesPlugin } from './plugin'
-import { dropPlugin, pluginDisabled, type PluginKind, publishPlugin } from './plugins-store'
+import { dropPlugin, pluginActive, type PluginKind, publishPlugin } from './plugins-store'
 
 interface LoadOptions {
   /** Absolute plugin.js path (disk plugins) — recorded for reveal/inventory. */
@@ -104,7 +104,7 @@ export async function loadRuntimePlugin(source: string, origin: string, options:
 
     // A disabled plugin still inventories (settings shows it, toggle
     // reactivates via the handle above) — it just never registers.
-    if (!pluginDisabled(plugin.id)) {
+    if (pluginActive(plugin.id, plugin.defaultEnabled ?? true)) {
       activate()
     }
 

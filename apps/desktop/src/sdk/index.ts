@@ -177,7 +177,7 @@ export type { GatewayEventListener } from '@/contrib/events'
 
 // -- contracts ----------------------------------------------------------------
 
-export type { HermesPlugin, PluginContext, PluginContribution, PluginStorage } from '@/contrib/plugin'
+export type { HermesPlugin, PluginContext, PluginContribution, PluginRestOptions, PluginStorage } from '@/contrib/plugin'
 export type { Contribution } from '@/contrib/types'
 /** Localized copy — plugins reuse the app's strings (and stay translatable). */
 export { useI18n } from '@/i18n'

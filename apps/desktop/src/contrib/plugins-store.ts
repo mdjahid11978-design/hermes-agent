@@ -24,31 +24,48 @@ export interface PluginRecord {
   file?: string
 }
 
-const DISABLED_KEY = 'hermes.desktop.disabledPlugins.v1'
+// Explicit user enable/disable choices, id -> boolean. ABSENCE means "no
+// choice" — the plugin falls back to its own `defaultEnabled`. This is what
+// lets an opt-in plugin ship off-by-default: absence ≠ enabled anymore.
+const DECISIONS_KEY = 'hermes.desktop.pluginDecisions.v2'
+const LEGACY_DISABLED_KEY = 'hermes.desktop.disabledPlugins.v1'
 
-function loadDisabled(): ReadonlySet<string> {
+function loadDecisions(): Record<string, boolean> {
   try {
-    const raw = window.localStorage.getItem(DISABLED_KEY)
+    const raw = window.localStorage.getItem(DECISIONS_KEY)
 
-    return new Set(raw ? (JSON.parse(raw) as string[]) : [])
+    if (raw) {
+      return JSON.parse(raw) as Record<string, boolean>
+    }
+
+    // Migrate the v1 disabled-set: each disabled id becomes an explicit `false`.
+    const legacy = window.localStorage.getItem(LEGACY_DISABLED_KEY)
+
+    if (legacy) {
+      return Object.fromEntries((JSON.parse(legacy) as string[]).map(id => [id, false]))
+    }
   } catch {
-    return new Set()
+    // Nonfatal — fall through to no choices.
   }
+
+  return {}
 }
 
-export const $disabledPlugins = atom<ReadonlySet<string>>(loadDisabled())
+export const $pluginDecisions = atom<Record<string, boolean>>(loadDecisions())
 
-export const pluginDisabled = (id: string) => $disabledPlugins.get().has(id)
+/** Whether a plugin should register: the user's explicit choice if any, else
+ *  the plugin's own default (true for ordinary plugins, false for opt-in). */
+export function pluginActive(id: string, defaultEnabled = true): boolean {
+  const decisions = $pluginDecisions.get()
 
-function saveDisabled(next: ReadonlySet<string>) {
-  $disabledPlugins.set(next)
+  return id in decisions ? decisions[id] : defaultEnabled
+}
+
+function saveDecisions(next: Record<string, boolean>) {
+  $pluginDecisions.set(next)
 
   try {
-    if (next.size === 0) {
-      window.localStorage.removeItem(DISABLED_KEY)
-    } else {
-      window.localStorage.setItem(DISABLED_KEY, JSON.stringify([...next]))
-    }
+    window.localStorage.setItem(DECISIONS_KEY, JSON.stringify(next))
   } catch {
     // Nonfatal.
   }
@@ -87,15 +104,7 @@ export function dropPlugin(id: string): void {
 
 /** Live toggle: deactivate + remember, or forget + reactivate. */
 export async function setPluginEnabled(id: string, enabled: boolean): Promise<void> {
-  const next = new Set($disabledPlugins.get())
-
-  if (enabled) {
-    next.delete(id)
-  } else {
-    next.add(id)
-  }
-
-  saveDisabled(next)
+  saveDecisions({ ...$pluginDecisions.get(), [id]: enabled })
 
   const handle = handles.get(id)
 
