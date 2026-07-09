@@ -247,6 +247,45 @@ export function stageNodePtyInto(srcRoot, destRoot, { platform = process.platfor
 
   // build/Release/* — present when node-pty was compiled locally
   // (e.g. no prebuild available for this Electron ABI/platform combo).
+  // Some installs won't have this at all if prebuild-install succeeded.
+  const buildReleaseDir = join(srcRoot, 'build/Release')
+  copyBuildRelease(buildReleaseDir, join(destRoot, 'build/Release'))
+
+  // If neither a prebuild nor build/Release produced a .node binary for this
+  // target, run electron-rebuild to compile one from source. This happens on
+  // CI (npm ci --ignore-scripts skips postinstall) and on platforms where
+  // node-pty doesn't publish prebuilds (e.g. linux-x64).
+  const stagedDirs = [
+    join(destRoot, 'prebuilds', `${platform}-${arch}`),
+    join(destRoot, 'build/Release')
+  ]
+  const hasNativeBinary = stagedDirs.some(dir => {
+    if (!existsSync(dir)) return false
+    return readdirSync(dir, { recursive: true }).some(name => String(name).endsWith('.node'))
+  })
+
+  if (!hasNativeBinary) {
+    console.log(
+      `[stage-native-deps] no prebuilt or compiled native binary for ${platform}-${arch}; ` +
+      `running electron-rebuild to compile from source...`
+    )
+    const result = spawnSync(
+      process.execPath,
+      ['../../node_modules/.bin/electron-rebuild', '-f', '-w', 'node-pty'],
+      { cwd: projectRoot, stdio: 'inherit' }
+    )
+    if (result.status !== 0) {
+      throw new Error(
+        `electron-rebuild failed for ${platform}-${arch} (exit ${result.status}). ` +
+        `Cannot stage node-pty without a native binary.`
+      )
+    }
+    // Re-copy build/Release after electron-rebuild populated it.
+    copyBuildRelease(buildReleaseDir, join(destRoot, 'build/Release'))
+  }
+
+  // build/Release/* — present when node-pty was compiled locally
+  // (e.g. no prebuild available for this Electron ABI/platform combo).
   // Only stage this when the target matches the host, because
   // build/Release contains a binary compiled for the *host's* platform
   // and architecture. Staging a host binary for a different target (e.g.
