@@ -32,7 +32,9 @@ function shimUrl(globalKey: keyof typeof GLOBALS): string {
   const source =
     `const m = globalThis.${globalKey};\n` +
     `export default m.default ?? m;\n` +
-    `export const { ${names.join(', ')} } = m;\n`
+    // Guard the destructuring: `export const {  } = m` is a syntax error, so
+    // only emit it when the namespace actually has named exports.
+    (names.length ? `export const { ${names.join(', ')} } = m;\n` : '')
 
   return URL.createObjectURL(new Blob([source], { type: 'text/javascript' }))
 }

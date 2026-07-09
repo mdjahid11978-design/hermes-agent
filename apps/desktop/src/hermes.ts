@@ -214,8 +214,17 @@ export async function pluginRest<T>(pluginId: string, path: string, opts: Plugin
     throw new Error('Hermes desktop bridge unavailable')
   }
 
+  // The namespace is the boundary — reject `..` so a relative segment can't
+  // normalize out of `/api/plugins/<id>` into another plugin's API or a core
+  // route. Check the path portion only (before any query/hash).
+  const suffix = path.startsWith('/') ? path : `/${path}`
+
+  if (suffix.split(/[?#]/, 1)[0].split('/').includes('..')) {
+    throw new Error(`pluginRest: illegal path traversal in "${path}"`)
+  }
+
   return window.hermesDesktop.api<T>({
-    path: `/api/plugins/${pluginId}${path.startsWith('/') ? path : `/${path}`}`,
+    path: `/api/plugins/${pluginId}${suffix}`,
     method: opts.method,
     body: opts.body,
     timeoutMs: opts.timeoutMs,

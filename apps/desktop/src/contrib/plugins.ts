@@ -17,7 +17,10 @@ import { loadRuntimePlugin, watchRuntimePlugins } from './runtime-loader'
 
 const modules = import.meta.glob<{ default: HermesPlugin }>('../plugins/*/plugin.{ts,tsx}', { eager: true })
 
-// Registry.register replaces by id, so re-running (HMR) is naturally idempotent.
+// One-shot init guard. Contributions themselves register by id (re-registering
+// is idempotent), but the runtime watcher setup below (watchRuntimePlugins, the
+// hello-runtime load) must NOT run twice — so discovery is guarded to a single
+// pass rather than re-run on HMR.
 let loaded = false
 
 export function discoverBundledPlugins(): void {
