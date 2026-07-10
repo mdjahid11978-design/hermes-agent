@@ -971,6 +971,13 @@ def _tool_result_observer_fields(result: Any) -> tuple[str, Optional[str], Optio
     return "ok", None, None
 
 
+def _observer_safe_tool_result(result: Any, function_name: str) -> Any:
+    """Project a raw tool result through the shared observer security boundary."""
+    from agent.tool_result_observers import observer_safe_tool_result
+
+    return observer_safe_tool_result(result, function_name)
+
+
 def _emit_post_tool_call_hook(
     *,
     function_name: str,
@@ -1000,13 +1007,14 @@ def _emit_post_tool_call_hook(
         from hermes_cli.plugins import has_hook, invoke_hook
         if not has_hook("post_tool_call"):
             return
+        observer_result = _observer_safe_tool_result(result, function_name)
         if status is None:
-            status, error_type, error_message = _tool_result_observer_fields(result)
+            status, error_type, error_message = _tool_result_observer_fields(observer_result)
         invoke_hook(
             "post_tool_call",
             tool_name=function_name,
             args=function_args,
-            result=result,
+            result=observer_result,
             task_id=task_id or "",
             session_id=session_id or "",
             tool_call_id=tool_call_id or "",
@@ -1321,12 +1329,13 @@ def handle_function_call(
         try:
             from hermes_cli.plugins import has_hook, invoke_hook
             if has_hook("transform_tool_result"):
-                status, error_type, error_message = _tool_result_observer_fields(result)
+                observer_result = _observer_safe_tool_result(result, function_name)
+                status, error_type, error_message = _tool_result_observer_fields(observer_result)
                 hook_results = invoke_hook(
                     "transform_tool_result",
                     tool_name=function_name,
                     args=function_args,
-                    result=result,
+                    result=observer_result,
                     task_id=task_id or "",
                     session_id=session_id or "",
                     tool_call_id=tool_call_id or "",

@@ -31,6 +31,7 @@ from agent.display import (
     _detect_tool_failure,
 )
 from agent.tool_guardrails import ToolGuardrailDecision
+from agent.tool_result_observers import observer_safe_tool_result
 from agent.tool_dispatch_helpers import (
     _is_destructive_command,
     _is_multimodal_tool_result,
@@ -599,8 +600,9 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 logger.error("_invoke_tool raised for %s: %s", function_name, tool_error, exc_info=True)
             duration = time.time() - start
             is_error, _ = _detect_tool_failure(function_name, result)
+            observer_result = observer_safe_tool_result(result, function_name, config=_tool_budget)
             if is_error:
-                logger.info("tool %s failed (%.2fs): %s", function_name, duration, result[:200])
+                logger.info("tool %s failed (%.2fs): %s", function_name, duration, str(observer_result)[:200])
             else:
                 logger.info("tool %s completed (%.2fs, %d chars)", function_name, duration, len(result))
             results[index] = (function_name, function_args, result, duration, is_error, False, middleware_trace)
@@ -794,6 +796,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
     for i, (tc, name, args, middleware_trace, block_result, blocked_by_guardrail) in enumerate(parsed_calls):
         r = results[i]
         blocked = False
+        observer_result = None
         # A worker can finish and write results[i] in the window between the
         # deadline snapshot (timed_out_indices, taken from not_done) and this
         # loop. Prefer that real result over a fabricated timeout message — the
@@ -856,8 +859,12 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                     failed=is_error,
                 )
 
+            observer_result = observer_safe_tool_result(
+                function_result, function_name, config=_tool_budget,
+            )
+
             if is_error:
-                _err_text = _multimodal_text_summary(function_result)
+                _err_text = _multimodal_text_summary(observer_result)
                 result_preview = _err_text[:200] if len(_err_text) > 200 else _err_text
                 logger.warning("Tool %s returned error (%.2fs): %s", function_name, tool_duration, result_preview)
 
@@ -877,21 +884,27 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                     agent.tool_progress_callback(
                         "tool.completed", function_name, None, None,
                         duration=tool_duration, is_error=is_error,
-                        result=function_result,
+                        result=observer_result,
                     )
                 except Exception as cb_err:
                     logging.debug(f"Tool progress callback error: {cb_err}")
 
             if agent.verbose_logging:
                 logging.debug(f"Tool {function_name} completed in {tool_duration:.2f}s")
-                logging.debug(f"Tool result ({len(function_result)} chars): {function_result}")
+                _observer_text = _multimodal_text_summary(observer_result)
+                logging.debug(f"Tool result ({len(_observer_text)} chars): {_observer_text}")
+
+        if observer_result is None:
+            observer_result = observer_safe_tool_result(
+                function_result, name, config=_tool_budget,
+            )
 
         # Print cute message per tool
         if agent._should_emit_quiet_tool_messages():
-            cute_msg = _get_cute_tool_message_impl(name, args, tool_duration, result=function_result)
+            cute_msg = _get_cute_tool_message_impl(name, args, tool_duration, result=observer_result)
             agent._safe_print(f"  {cute_msg}")
         elif not agent.quiet_mode and getattr(agent, "tool_progress_mode", "all") != "off":
-            _preview_str = _multimodal_text_summary(function_result)
+            _preview_str = _multimodal_text_summary(observer_result)
             if agent.verbose_logging:
                 print(f"  ✅ Tool {i+1} completed in {tool_duration:.2f}s")
                 print(agent._wrap_verbose("Result: ", _preview_str))
@@ -905,7 +918,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         if not blocked and agent.tool_complete_callback:
             try:
                 display_args = _redact_tool_args_for_display(name, args) or args
-                agent.tool_complete_callback(tc.id, name, display_args, function_result)
+                agent.tool_complete_callback(tc.id, name, display_args, observer_result)
             except Exception as cb_err:
                 logging.debug(f"Tool complete callback error: {cb_err}")
 
@@ -1182,7 +1195,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             )
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('todo', function_args, tool_duration, result=function_result)}")
+                agent._vprint(f"  {_get_cute_tool_message_impl('todo', function_args, tool_duration, result=observer_safe_tool_result(function_result, function_name, config=_tool_budget))}")
         elif function_name == "session_search":
             def _execute(next_args: dict) -> Any:
                 session_db = agent._get_session_db_for_recall()
@@ -1211,7 +1224,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             )
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('session_search', function_args, tool_duration, result=function_result)}")
+                agent._vprint(f"  {_get_cute_tool_message_impl('session_search', function_args, tool_duration, result=observer_safe_tool_result(function_result, function_name, config=_tool_budget))}")
         elif function_name == "memory":
             def _execute(next_args: dict) -> Any:
                 target = next_args.get("target", "memory")
@@ -1248,7 +1261,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             )
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('memory', function_args, tool_duration, result=function_result)}")
+                agent._vprint(f"  {_get_cute_tool_message_impl('memory', function_args, tool_duration, result=observer_safe_tool_result(function_result, function_name, config=_tool_budget))}")
         elif function_name == "clarify":
             def _execute(next_args: dict) -> Any:
                 from tools.clarify_tool import clarify_tool as _clarify_tool
@@ -1267,7 +1280,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             )
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('clarify', function_args, tool_duration, result=function_result)}")
+                agent._vprint(f"  {_get_cute_tool_message_impl('clarify', function_args, tool_duration, result=observer_safe_tool_result(function_result, function_name, config=_tool_budget))}")
         elif function_name == "read_terminal":
             def _execute(next_args: dict) -> Any:
                 from tools.read_terminal_tool import read_terminal_tool as _read_terminal_tool
@@ -1286,7 +1299,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             )
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('read_terminal', function_args, tool_duration, result=function_result)}")
+                agent._vprint(f"  {_get_cute_tool_message_impl('read_terminal', function_args, tool_duration, result=observer_safe_tool_result(function_result, function_name, config=_tool_budget))}")
         elif function_name == "delegate_task":
             tasks_arg = function_args.get("tasks")
             if tasks_arg and isinstance(tasks_arg, list):
@@ -1320,7 +1333,10 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             finally:
                 agent._delegate_spinner = None
                 tool_duration = time.time() - tool_start_time
-                cute_msg = _get_cute_tool_message_impl('delegate_task', function_args, tool_duration, result=_delegate_result)
+                cute_msg = _get_cute_tool_message_impl(
+                    'delegate_task', function_args, tool_duration,
+                    result=observer_safe_tool_result(_delegate_result, function_name, config=_tool_budget),
+                )
                 if spinner:
                     spinner.stop(cute_msg)
                 elif agent._should_emit_quiet_tool_messages():
@@ -1353,7 +1369,10 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 logger.error("context_engine.handle_tool_call raised for %s: %s", function_name, tool_error, exc_info=True)
             finally:
                 tool_duration = time.time() - tool_start_time
-                cute_msg = _get_cute_tool_message_impl(function_name, function_args, tool_duration, result=_ce_result)
+                cute_msg = _get_cute_tool_message_impl(
+                    function_name, function_args, tool_duration,
+                    result=observer_safe_tool_result(_ce_result, function_name, config=_tool_budget),
+                )
                 if spinner:
                     spinner.stop(cute_msg)
                 elif agent._should_emit_quiet_tool_messages():
@@ -1387,7 +1406,10 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 logger.error("memory_manager.handle_tool_call raised for %s: %s", function_name, tool_error, exc_info=True)
             finally:
                 tool_duration = time.time() - tool_start_time
-                cute_msg = _get_cute_tool_message_impl(function_name, function_args, tool_duration, result=_mem_result)
+                cute_msg = _get_cute_tool_message_impl(
+                    function_name, function_args, tool_duration,
+                    result=observer_safe_tool_result(_mem_result, function_name, config=_tool_budget),
+                )
                 if spinner:
                     spinner.stop(cute_msg)
                 elif agent._should_emit_quiet_tool_messages():
@@ -1438,7 +1460,10 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 logger.error("handle_function_call raised for %s: %s", function_name, tool_error, exc_info=True)
             finally:
                 tool_duration = time.time() - tool_start_time
-                cute_msg = _get_cute_tool_message_impl(function_name, function_args, tool_duration, result=_spinner_result)
+                cute_msg = _get_cute_tool_message_impl(
+                    function_name, function_args, tool_duration,
+                    result=observer_safe_tool_result(_spinner_result, function_name, config=_tool_budget),
+                )
                 if spinner:
                     spinner.stop(cute_msg)
                 elif agent._should_emit_quiet_tool_messages():
@@ -1520,9 +1545,13 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 function_result,
                 failed=_is_error_result,
             )
-            result_preview = function_result if agent.verbose_logging else (
-                function_result[:200] if len(function_result) > 200 else function_result
-            )
+        observer_result = observer_safe_tool_result(
+            function_result, function_name, config=_tool_budget,
+        )
+        observer_text = _multimodal_text_summary(observer_result)
+        result_preview = observer_text if agent.verbose_logging else (
+            observer_text[:200] if len(observer_text) > 200 else observer_text
+        )
         if _is_error_result:
             logger.warning("Tool %s returned error (%.2fs): %s", function_name, tool_duration, result_preview)
         else:
@@ -1545,7 +1574,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 agent.tool_progress_callback(
                     "tool.completed", function_name, None, None,
                     duration=tool_duration, is_error=_is_error_result,
-                    result=function_result,
+                    result=observer_result,
                 )
             except Exception as cb_err:
                 logging.debug(f"Tool progress callback error: {cb_err}")
@@ -1555,13 +1584,13 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
 
         if agent.verbose_logging:
             logging.debug(f"Tool {function_name} completed in {tool_duration:.2f}s")
-            _log_result = _multimodal_text_summary(function_result)
+            _log_result = _multimodal_text_summary(observer_result)
             logging.debug(f"Tool result ({len(_log_result)} chars): {_log_result}")
 
         if not _execution_blocked and agent.tool_complete_callback:
             try:
                 display_args = _redact_tool_args_for_display(function_name, function_args) or function_args
-                agent.tool_complete_callback(tool_call.id, function_name, display_args, function_result)
+                agent.tool_complete_callback(tool_call.id, function_name, display_args, observer_result)
             except Exception as cb_err:
                 logging.debug(f"Tool complete callback error: {cb_err}")
 
@@ -1600,10 +1629,9 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
         if not agent.quiet_mode and getattr(agent, "tool_progress_mode", "all") != "off":
             if agent.verbose_logging:
                 print(f"  ✅ Tool {i} completed in {tool_duration:.2f}s")
-                print(agent._wrap_verbose("Result: ", function_result))
+                print(agent._wrap_verbose("Result: ", observer_text))
             else:
-                _fr_str = function_result if isinstance(function_result, str) else str(function_result)
-                response_preview = _fr_str[:agent.log_prefix_chars] + "..." if len(_fr_str) > agent.log_prefix_chars else _fr_str
+                response_preview = observer_text[:agent.log_prefix_chars] + "..." if len(observer_text) > agent.log_prefix_chars else observer_text
                 print(f"  ✅ Tool {i} completed in {tool_duration:.2f}s - {response_preview}")
 
         if agent._interrupt_requested and i < len(assistant_message.tool_calls):

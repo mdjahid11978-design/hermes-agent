@@ -2955,6 +2955,44 @@ class TestConcurrentToolExecution:
         assert progress[0][2].startswith("sk-pro")
         assert secret not in repr(starts + completes + progress)
 
+    @pytest.mark.parametrize("concurrent", [False, True])
+    def test_result_observers_are_redacted_and_bounded_before_callbacks_and_verbose_output(
+        self, agent, concurrent, capsys, caplog,
+    ):
+        secret = "sk-proj-ABCD1234567890EFGH"
+        raw = f'{{"token":"{secret}","body":"' + ("z" * 110_000) + '"}'
+        calls = [
+            _mock_tool_call(name="mcp_demo", arguments="{}", call_id="c1"),
+            _mock_tool_call(name="mcp_demo", arguments="{}", call_id="c2"),
+        ] if concurrent else [
+            _mock_tool_call(name="mcp_demo", arguments="{}", call_id="c1"),
+        ]
+        mock_msg = _mock_assistant_msg(content="", tool_calls=calls)
+        messages = []
+        progress_results = []
+        complete_results = []
+        agent.verbose_logging = True
+        agent.quiet_mode = False
+        agent.tool_progress_callback = lambda event, name, preview, args, **kw: (
+            progress_results.append(kw["result"]) if event == "tool.completed" else None
+        )
+        agent.tool_complete_callback = lambda _id, _name, _args, result: complete_results.append(result)
+
+        with patch("run_agent.handle_function_call", return_value=raw):
+            if concurrent:
+                agent._execute_tool_calls_concurrent(mock_msg, messages, "task-1")
+            else:
+                agent._execute_tool_calls_sequential(mock_msg, messages, "task-1")
+
+        observer_text = repr(progress_results + complete_results) + capsys.readouterr().out + caplog.text
+        assert secret not in observer_text
+        assert "z" * 10_000 not in observer_text
+        assert progress_results and complete_results
+        assert all("Truncated" in result for result in progress_results + complete_results)
+        # Observer projection must not replace the result used for internal
+        # context persistence/dispatch; that path keeps its own budget policy.
+        assert all(secret in message["content"] for message in messages)
+
     def test_invoke_tool_handles_agent_level_tools(self, agent):
         """_invoke_tool should handle todo tool directly."""
         with patch("tools.todo_tool.todo_tool", return_value='{"ok":true}') as mock_todo:
